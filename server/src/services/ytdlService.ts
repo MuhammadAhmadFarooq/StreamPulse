@@ -59,12 +59,11 @@ function getCookieFlags(): string[] {
   }
 }
 
-// Cloud server bypass flags: tvhtml5 + android_vr player clients bypass bot sign-in checks
+// Common yt-dlp flags for cloud deployment
 const COMMON_FLAGS = [
   '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
   '--referer', 'https://www.youtube.com/',
   '--add-header', 'Accept-Language:en-US,en;q=0.9',
-  '--extractor-args', 'youtube:player_client=tvhtml5,android_vr,mweb',
   '--no-check-certificates',
   '--geo-bypass',
 ];
