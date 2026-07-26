@@ -1,4 +1,4 @@
-import { create as createYtdlp } from 'yt-dlp-exec';
+import { spawn } from 'child_process';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import path from 'path';
 import fs from 'fs';
@@ -9,7 +9,7 @@ import { logger } from '../utils/logger.js';
 
 const DOWNLOADS_DIR = path.join(process.cwd(), 'downloads');
 
-// Auto-detect system or bundled yt-dlp binary (works on Docker/Linux & Windows)
+// Auto-detect system or bundled yt-dlp binary (Docker/Linux & Windows)
 function getYtdlExecBinary(): string {
   if (fs.existsSync('/usr/local/bin/yt-dlp')) {
     return '/usr/local/bin/yt-dlp';
@@ -35,49 +35,59 @@ function getFfmpegBinaryPath(): string {
   return ffmpegPath.path;
 }
 
-const ytdlExec = createYtdlp(getYtdlExecBinary());
-
-// Bypass YouTube bot-detection / HTTP 403 — camelCase flags for yt-dlp-exec
-const BYPASS_OPTS = {
-  userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-  referer: 'https://www.youtube.com/',
-  addHeader: 'Accept-Language:en-US,en;q=0.9',
-};
+const COMMON_FLAGS = [
+  '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  '--referer', 'https://www.youtube.com/',
+  '--add-header', 'Accept-Language:en-US,en;q=0.9',
+];
 
 export class YtdlService {
 
   // ── GET METADATA ──────────────────────────────────────────────────────────────
   public async getMediaInfo(url: string): Promise<MediaInfo> {
-    logger.info(`Extracting media info for URL: ${url} using binary: ${getYtdlExecBinary()}`);
+    const bin = getYtdlExecBinary();
+    logger.info(`Extracting media info for URL: ${url} using binary: ${bin}`);
+
+    const args = [
+      url,
+      '--dump-single-json',
+      '--no-warnings',
+      '--no-playlist',
+      '--ffmpeg-location', getFfmpegBinaryPath(),
+      ...COMMON_FLAGS,
+    ];
 
     const raw: any = await new Promise((resolve, reject) => {
       let stdout = '';
       let stderr = '';
 
-      const proc = ytdlExec(url, {
-        ...BYPASS_OPTS,
-        dumpSingleJson: true,
-        noWarnings: true,
-        noPlaylist: true,
-        ffmpegLocation: getFfmpegBinaryPath(),
-      });
+      const proc = spawn(bin, args);
 
-      (proc as any).stdout?.on('data', (c: Buffer) => { stdout += c.toString(); });
-      (proc as any).stderr?.on('data', (c: Buffer) => { stderr += c.toString(); });
-      (proc as any).on('close', (code: number) => {
+      proc.stdout?.on('data', (c: Buffer) => { stdout += c.toString(); });
+      proc.stderr?.on('data', (c: Buffer) => { stderr += c.toString(); });
+
+      proc.on('close', (code: number) => {
         if (code !== 0) {
           logger.error(`yt-dlp info exit ${code}: ${stderr.slice(0, 400)}`);
           return reject(new Error('Could not fetch metadata. Video may be private or geo-blocked.'));
         }
-        try { resolve(JSON.parse(stdout.trim())); }
-        catch { reject(new Error('Invalid JSON from yt-dlp.')); }
+        try {
+          resolve(JSON.parse(stdout.trim()));
+        } catch (e: any) {
+          logger.error('JSON parse error from yt-dlp:', e.message);
+          reject(new Error('Invalid JSON output from yt-dlp.'));
+        }
       });
-      (proc as any).on('error', reject);
+
+      proc.on('error', (err: Error) => {
+        logger.error(`yt-dlp spawn error: ${err.message}`);
+        reject(err);
+      });
     });
 
     const rawFormats: any[] = raw.formats || [];
 
-    // Heights that have real video streams (not audio-only)
+    // Heights that have real video streams
     const videoHeights = Array.from(
       new Set<number>(
         rawFormats
@@ -101,7 +111,7 @@ export class YtdlService {
       else if (height >= 240)  label = '240p';
       else                     label = '144p';
 
-      if (formats.some((f) => f.resolution === label)) return; // deduplicate
+      if (formats.some((f) => f.resolution === label)) return;
 
       const formatId =
         `bestvideo[height<=${height}][ext=mp4]+bestaudio[ext=m4a]` +
@@ -198,32 +208,32 @@ export class YtdlService {
     const safeTitle = sanitizeFilename(customFilename || jobId);
     const outputPattern = path.join(DOWNLOADS_DIR, `${safeTitle}_${jobId}.%(ext)s`);
 
-    logger.info(`Starting download job ${jobId} [${extension.toUpperCase()}] format: ${formatId}`);
+    const bin = getYtdlExecBinary();
+    logger.info(`Starting download job ${jobId} [${extension.toUpperCase()}] binary: ${bin}`);
 
     return new Promise((resolve, reject) => {
-      const opts: any = {
-        ...BYPASS_OPTS,
-        format: formatId,
-        output: outputPattern,
-        ffmpegLocation: getFfmpegBinaryPath(),
-        noWarnings: true,
-        noPlaylist: true,
-        newline: true,
-      };
+      const args = [
+        url,
+        '--format', formatId,
+        '--output', outputPattern,
+        '--ffmpeg-location', getFfmpegBinaryPath(),
+        '--no-warnings',
+        '--no-playlist',
+        '--newline',
+        ...COMMON_FLAGS,
+      ];
 
       if (isAudio) {
-        opts.extractAudio = true;
-        opts.audioFormat = extension;
-        opts.audioQuality = '0';
+        args.push('--extract-audio', '--audio-format', extension, '--audio-quality', '0');
       } else {
-        opts.mergeOutputFormat = 'mp4';
-        opts.postprocessorArgs = 'ffmpeg:-c:v copy -c:a aac -b:a 192k';
+        args.push('--merge-output-format', 'mp4');
+        args.push('--postprocessor-args', 'ffmpeg:-c:v copy -c:a aac -b:a 192k');
       }
 
-      const proc = ytdlExec(url, opts);
+      const proc = spawn(bin, args);
       let lastErrorMsg = '';
 
-      (proc as any).stdout?.on('data', (chunk: Buffer) => {
+      proc.stdout?.on('data', (chunk: Buffer) => {
         const line = chunk.toString();
         const m = line.match(
           /\[download\]\s+([\d.]+)%\s+of\s+~?\s*\S+\s+at\s+(\S+)\s+ETA\s+(\S+)/i
@@ -248,13 +258,13 @@ export class YtdlService {
         }
       });
 
-      (proc as any).stderr?.on('data', (chunk: Buffer) => {
+      proc.stderr?.on('data', (chunk: Buffer) => {
         const t = chunk.toString();
         lastErrorMsg += t;
         logger.debug(`[${jobId}] stderr: ${t.trim()}`);
       });
 
-      (proc as any).on('close', (code: number) => {
+      proc.on('close', (code: number) => {
         if (code !== 0) {
           logger.error(`Job ${jobId} failed (exit ${code}): ${lastErrorMsg.slice(0, 400)}`);
           sseService.sendProgress(jobId, {
@@ -301,7 +311,7 @@ export class YtdlService {
         resolve({ filePath: p, fileName: done });
       });
 
-      (proc as any).on('error', (err: Error) => {
+      proc.on('error', (err: Error) => {
         logger.error(`Process error job ${jobId}: ${err.message}`);
         sseService.sendProgress(jobId, {
           jobId, percent: 0, speed: '0KiB/s', eta: '--:--',
