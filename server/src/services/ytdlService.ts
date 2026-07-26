@@ -35,12 +35,27 @@ function getFfmpegBinaryPath(): string {
   return ffmpegPath.path;
 }
 
-// Cloud server bypass flags (bypasses YouTube datacenter IP blocking on Render/AWS/Fly)
+// Ensure optional cookies file from environment variable if provided on Render/Fly
+function getCookieFlags(): string[] {
+  const cookiesContent = process.env.YOUTUBE_COOKIES_TEXT;
+  if (!cookiesContent || !cookiesContent.trim()) return [];
+
+  const cookiePath = path.join(process.cwd(), 'youtube_cookies.txt');
+  try {
+    fs.writeFileSync(cookiePath, cookiesContent.trim(), 'utf-8');
+    return ['--cookies', cookiePath];
+  } catch (err) {
+    logger.error('Failed to write cookies file:', err);
+    return [];
+  }
+}
+
+// Cloud server bypass flags: tvhtml5 + android_vr player clients bypass bot sign-in checks
 const COMMON_FLAGS = [
-  '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+  '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
   '--referer', 'https://www.youtube.com/',
   '--add-header', 'Accept-Language:en-US,en;q=0.9',
-  '--extractor-args', 'youtube:player_client=ios,mweb,web',
+  '--extractor-args', 'youtube:player_client=tvhtml5,android_vr,mweb',
   '--no-check-certificates',
   '--geo-bypass',
 ];
@@ -59,6 +74,7 @@ export class YtdlService {
       '--no-playlist',
       '--ffmpeg-location', getFfmpegBinaryPath(),
       ...COMMON_FLAGS,
+      ...getCookieFlags(),
     ];
 
     const raw: any = await new Promise((resolve, reject) => {
@@ -226,6 +242,7 @@ export class YtdlService {
         '--no-playlist',
         '--newline',
         ...COMMON_FLAGS,
+        ...getCookieFlags(),
       ];
 
       if (isAudio) {
