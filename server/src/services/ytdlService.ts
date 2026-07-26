@@ -1,4 +1,4 @@
-import { exec as ytdlExec } from 'yt-dlp-exec';
+import { create as createYtdlp } from 'yt-dlp-exec';
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import path from 'path';
 import fs from 'fs';
@@ -9,8 +9,35 @@ import { logger } from '../utils/logger.js';
 
 const DOWNLOADS_DIR = path.join(process.cwd(), 'downloads');
 
+// Auto-detect system or bundled yt-dlp binary (works on Docker/Linux & Windows)
+function getYtdlExecBinary(): string {
+  if (fs.existsSync('/usr/local/bin/yt-dlp')) {
+    return '/usr/local/bin/yt-dlp';
+  }
+  if (fs.existsSync('/usr/bin/yt-dlp')) {
+    return '/usr/bin/yt-dlp';
+  }
+  const bundledNode = path.join(process.cwd(), 'node_modules', 'yt-dlp-exec', 'bin', 'yt-dlp');
+  const bundledNodeExe = path.join(process.cwd(), 'node_modules', 'yt-dlp-exec', 'bin', 'yt-dlp.exe');
+  if (fs.existsSync(bundledNode)) return bundledNode;
+  if (fs.existsSync(bundledNodeExe)) return bundledNodeExe;
+  return 'yt-dlp';
+}
+
+// Auto-detect system or installer ffmpeg binary
+function getFfmpegBinaryPath(): string {
+  if (fs.existsSync('/usr/bin/ffmpeg')) {
+    return '/usr/bin/ffmpeg';
+  }
+  if (fs.existsSync('/usr/local/bin/ffmpeg')) {
+    return '/usr/local/bin/ffmpeg';
+  }
+  return ffmpegPath.path;
+}
+
+const ytdlExec = createYtdlp(getYtdlExecBinary());
+
 // Bypass YouTube bot-detection / HTTP 403 — camelCase flags for yt-dlp-exec
-// NOTE: Do NOT add extractorArgs to force Android client — it limits available formats to 360p only.
 const BYPASS_OPTS = {
   userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
   referer: 'https://www.youtube.com/',
@@ -21,7 +48,7 @@ export class YtdlService {
 
   // ── GET METADATA ──────────────────────────────────────────────────────────────
   public async getMediaInfo(url: string): Promise<MediaInfo> {
-    logger.info(`Extracting media info for URL: ${url}`);
+    logger.info(`Extracting media info for URL: ${url} using binary: ${getYtdlExecBinary()}`);
 
     const raw: any = await new Promise((resolve, reject) => {
       let stdout = '';
@@ -32,7 +59,7 @@ export class YtdlService {
         dumpSingleJson: true,
         noWarnings: true,
         noPlaylist: true,
-        ffmpegLocation: ffmpegPath.path,
+        ffmpegLocation: getFfmpegBinaryPath(),
       });
 
       (proc as any).stdout?.on('data', (c: Buffer) => { stdout += c.toString(); });
@@ -76,7 +103,6 @@ export class YtdlService {
 
       if (formats.some((f) => f.resolution === label)) return; // deduplicate
 
-      // CRITICAL: Only restrict video height — audio always picks "best"
       const formatId =
         `bestvideo[height<=${height}][ext=mp4]+bestaudio[ext=m4a]` +
         `/bestvideo[height<=${height}]+bestaudio` +
@@ -179,7 +205,7 @@ export class YtdlService {
         ...BYPASS_OPTS,
         format: formatId,
         output: outputPattern,
-        ffmpegLocation: ffmpegPath.path,
+        ffmpegLocation: getFfmpegBinaryPath(),
         noWarnings: true,
         noPlaylist: true,
         newline: true,
@@ -190,7 +216,6 @@ export class YtdlService {
         opts.audioFormat = extension;
         opts.audioQuality = '0';
       } else {
-        // Force final container to MP4 and re-encode audio to AAC
         opts.mergeOutputFormat = 'mp4';
         opts.postprocessorArgs = 'ffmpeg:-c:v copy -c:a aac -b:a 192k';
       }
@@ -200,7 +225,6 @@ export class YtdlService {
 
       (proc as any).stdout?.on('data', (chunk: Buffer) => {
         const line = chunk.toString();
-        // Progress: [download]  45.3% of ~1.23GiB at 5.10MiB/s ETA 02:10
         const m = line.match(
           /\[download\]\s+([\d.]+)%\s+of\s+~?\s*\S+\s+at\s+(\S+)\s+ETA\s+(\S+)/i
         );
