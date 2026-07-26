@@ -3,16 +3,17 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
-# Install Python + pip (needed for yt-dlp) and ffmpeg
+# Install Python, ffmpeg, curl, and ca-certificates
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     ffmpeg \
     curl \
+    ca-certificates \
     --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
 # Install yt-dlp system-wide
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+RUN curl -k -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 # Install root dependencies
@@ -36,14 +37,16 @@ FROM node:20-slim AS runner
 
 WORKDIR /app
 
-# Install runtime dependencies: Python, ffmpeg, yt-dlp
+# Install runtime dependencies: Python, ffmpeg, curl, ca-certificates
 RUN apt-get update && apt-get install -y \
     python3 \
     ffmpeg \
     curl \
+    ca-certificates \
     --no-install-recommends && rm -rf /var/lib/apt/lists/*
 
-RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+# Install yt-dlp system-wide
+RUN curl -k -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 # Copy only production artifacts
