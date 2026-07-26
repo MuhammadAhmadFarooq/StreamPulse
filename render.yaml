@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: streampulse
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: NODE_ENV
+        value: production
