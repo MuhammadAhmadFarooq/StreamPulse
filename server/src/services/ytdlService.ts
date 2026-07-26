@@ -143,10 +143,7 @@ export class YtdlService {
 
       if (formats.some((f) => f.resolution === label)) return;
 
-      const formatId =
-        `bestvideo[height<=${height}][ext=mp4]+bestaudio[ext=m4a]` +
-        `/bestvideo[height<=${height}]+bestaudio` +
-        `/best[height<=${height}]`;
+      const formatId = `bestvideo[height<=${height}]+bestaudio/best[height<=${height}]/best`;
 
       const sample = rawFormats.find(
         (f: any) => f.height === height && f.vcodec !== 'none'
@@ -165,7 +162,7 @@ export class YtdlService {
 
     if (formats.length === 0) {
       formats.push({
-        formatId: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
+        formatId: 'bestvideo+bestaudio/best',
         resolution: 'Best Available',
         ext: 'mp4',
         filesize: null,
