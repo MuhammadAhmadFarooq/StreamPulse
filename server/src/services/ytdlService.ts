@@ -35,14 +35,23 @@ function getFfmpegBinaryPath(): string {
   return ffmpegPath.path;
 }
 
-// Ensure optional cookies file from environment variable if provided on Render/Fly
+// Ensure optional cookies file from environment variable (Netscape LF format for Linux)
 function getCookieFlags(): string[] {
-  const cookiesContent = process.env.YOUTUBE_COOKIES_TEXT;
+  let cookiesContent = process.env.YOUTUBE_COOKIES_TEXT;
   if (!cookiesContent || !cookiesContent.trim()) return [];
+
+  // Convert Windows CRLF to Linux LF for Render environment
+  cookiesContent = cookiesContent.replace(/\r\n/g, '\n').trim();
+
+  // Ensure mandatory Netscape header
+  if (!cookiesContent.startsWith('#')) {
+    cookiesContent = `# Netscape HTTP Cookie File\n${cookiesContent}`;
+  }
 
   const cookiePath = path.join(process.cwd(), 'youtube_cookies.txt');
   try {
-    fs.writeFileSync(cookiePath, cookiesContent.trim(), 'utf-8');
+    fs.writeFileSync(cookiePath, cookiesContent, 'utf-8');
+    logger.info('YouTube cookies loaded successfully from YOUTUBE_COOKIES_TEXT');
     return ['--cookies', cookiePath];
   } catch (err) {
     logger.error('Failed to write cookies file:', err);
