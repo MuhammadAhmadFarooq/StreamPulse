@@ -35,10 +35,14 @@ function getFfmpegBinaryPath(): string {
   return ffmpegPath.path;
 }
 
+// Cloud server bypass flags (bypasses YouTube datacenter IP blocking on Render/AWS/Fly)
 const COMMON_FLAGS = [
-  '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
   '--referer', 'https://www.youtube.com/',
   '--add-header', 'Accept-Language:en-US,en;q=0.9',
+  '--extractor-args', 'youtube:player_client=ios,mweb,web',
+  '--no-check-certificates',
+  '--geo-bypass',
 ];
 
 export class YtdlService {
@@ -69,7 +73,8 @@ export class YtdlService {
       proc.on('close', (code: number) => {
         if (code !== 0) {
           logger.error(`yt-dlp info exit ${code}: ${stderr.slice(0, 400)}`);
-          return reject(new Error('Could not fetch metadata. Video may be private or geo-blocked.'));
+          const errLine = stderr.split('\n').find((l) => l.includes('ERROR:')) || stderr.slice(0, 200);
+          return reject(new Error(errLine.replace(/^ERROR:\s*/, '').trim() || 'Could not fetch metadata. Video may be private or geo-blocked.'));
         }
         try {
           resolve(JSON.parse(stdout.trim()));
