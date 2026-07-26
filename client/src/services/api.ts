@@ -7,7 +7,14 @@ export async function fetchMediaInfo(url: string): Promise<MediaInfo> {
     body: JSON.stringify({ url }),
   });
 
-  const json = await response.json();
+  const text = await response.text();
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error(text.slice(0, 100) || `Server error (${response.status})`);
+  }
+
   if (!response.ok || !json.success) {
     throw new Error(json.error || 'Failed to fetch media information.');
   }
@@ -27,7 +34,14 @@ export async function requestDownload(payload: {
     body: JSON.stringify(payload),
   });
 
-  const json = await response.json();
+  const text = await response.text();
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error(text.slice(0, 100) || `Server error (${response.status})`);
+  }
+
   if (!response.ok || !json.success) {
     throw new Error(json.error || 'Failed to initiate download job.');
   }
